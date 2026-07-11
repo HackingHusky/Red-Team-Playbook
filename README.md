@@ -2,7 +2,7 @@
 
 An OS-agnostic, infrastructure-as-code deployment engine designed to provision, harden, and customize Red Team operator environments via SSH. 
 
-This repository consolidates and ports the optimization logic, package selections, and tool suites found in legacy deployment scripts (`pimpmykali`, `blackarch-install`, and custom repos) into scalable, automated **Ansible YAML playbooks**.
+This repository consolidates and ports the optimization logic, package selections, and tool suites found in legacy deployment scripts into scalable, automated **Ansible YAML playbooks**.
 
 ---
 
