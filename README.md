@@ -1,4 +1,4 @@
-# Multi-Distro Red Team Playbook & Provisioner 🎯
+# Multi-Distro Red Team Playbook & Provisioner 
 
 An OS-agnostic, infrastructure-as-code deployment engine designed to provision, harden, and customize Red Team operator environments via SSH. 
 
@@ -6,7 +6,7 @@ This repository consolidates and ports the optimization logic, package selection
 
 ---
 
-## ⚡ Supported Operating Systems
+##  Supported Operating Systems
 
 The playbook dynamically detects the target host’s OS kernel and package manager, applying specialized configurations without breaking dependencies:
 
@@ -15,7 +15,7 @@ The playbook dynamically detects the target host’s OS kernel and package manag
 
 ---
 
-## 📁 Repository Structure
+##  Repository Structure
 
 ```text
 redteam-playbook/
@@ -33,7 +33,7 @@ redteam-playbook/
 
 ---
 
-## 🛠️ Integrated Core Features
+## Integrated Core Features
 
 *   **Workspace Standard:** Automatically enforces a standardized operation directories framework (`/root/Workspace/{Recon,Exploits,OSINT}`).
 *   **Environment Enhancements:** Disables screen blanking, power-saving lockouts, and sets up custom terminal dotfiles.
@@ -42,7 +42,7 @@ redteam-playbook/
 
 ---
 
-## 🚀 Deployment Guide
+##  Deployment Guide
 
 ### 1. Prerequisites
 Ensure your local host has Ansible installed:
