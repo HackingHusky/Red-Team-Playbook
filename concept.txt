@@ -1,0 +1,11 @@
+redteam-playbook/
+├── inventory.ini             # Defines your target host IPs and groups
+├── playbook.yml              # Core blueprint mapping hosts to roles
+└── roles/
+    └── redteam_env/
+        ├── tasks/
+        │   ├── main.yml      # Entry point identifying the target OS
+        │   ├── debian.yml    # Kali, Parrot, and Ubuntu setup
+        │   └── arch.yml      # BlackArch setup
+        └── files/
+            └── tmux.conf     # Config payloads (e.g., Terminator configs)
