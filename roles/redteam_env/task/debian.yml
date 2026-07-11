@@ -20,4 +20,5 @@
       - certipy-ad
       - terminator
       - ligolo-ng
+      - bloodhound-cli
     state: present
