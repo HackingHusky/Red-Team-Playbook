@@ -77,13 +77,25 @@
 - name: Clone privesc/exploitation tools not in apt
   ansible.builtin.git:
     repo: "https://github.com/{{ item.repo }}"
-    dest: "/root/Workspace/Exploits/{{ item.name }}"
+    dest: "{{ workspace_base }}/Exploits/{{ item.name }}"
     depth: 1
     update: false
   loop: "{{ kali_git_tools }}"
   loop_control:
     label: "{{ item.name }}"
   register: git_results
+  ignore_errors: true
+
+- name: Ensure cloned tools are owned by the operator
+  ansible.builtin.file:
+    path: "{{ workspace_base }}/Exploits/{{ item.name }}"
+    state: directory
+    owner: "{{ redteam_user }}"
+    group: "{{ redteam_user }}"
+    recurse: true
+  loop: "{{ kali_git_tools }}"
+  loop_control:
+    label: "{{ item.name }}"
   ignore_errors: true
 
 - name: Record failed git tools
@@ -135,6 +147,11 @@
         dest: /etc/apt/keyrings/microsoft.asc
         mode: '0644'
 
+    - name: Ensure python3-debian is present (required by deb822_repository)
+      ansible.builtin.apt:
+        name: python3-debian
+        state: present
+
     - name: Add Microsoft VS Code apt repository
       ansible.builtin.deb822_repository:
         name: vscode
@@ -185,7 +202,9 @@
 # --- Failure report ---
 - name: Write failed-tools report
   ansible.builtin.copy:
-    dest: /root/Workspace/failed_tools.txt
+    dest: "{{ workspace_base }}/failed_tools.txt"
+    owner: "{{ redteam_user }}"
+    group: "{{ redteam_user }}"
     mode: '0644'
     content: |
       Tools that failed to install (redteam_env, {{ ansible_distribution }} {{ ansible_distribution_release }}):
@@ -196,7 +215,7 @@
 
 - name: Remove stale failed-tools report when everything succeeded
   ansible.builtin.file:
-    path: /root/Workspace/failed_tools.txt
+    path: "{{ workspace_base }}/failed_tools.txt"
     state: absent
   when: failed_tools | length == 0
 
@@ -204,5 +223,5 @@
   ansible.builtin.debug:
     msg: >-
       {{ failed_tools | length }} tool(s) failed to install:
-      {{ failed_tools | join(', ') }}. See /root/Workspace/failed_tools.txt
+      {{ failed_tools | join(', ') }}. See {{ workspace_base }}/failed_tools.txt
   when: failed_tools | length > 0

@@ -1,14 +1,33 @@
 ---
 # 1. Distro-Agnostic Setup (Combined from BlackArch & PimpMyKali logic)
+
+# Resolve the operator account so the workspace lands in their home, not root's,
+# even though tasks run via become. Prefers the user who invoked sudo; override
+# with -e redteam_user=<name> if needed.
+- name: Determine the operator account
+  ansible.builtin.set_fact:
+    redteam_user: "{{ redteam_user | default(ansible_env.SUDO_USER | default(ansible_user_id, true), true) }}"
+
+- name: Look up the operator account's home directory
+  ansible.builtin.getent:
+    database: passwd
+    key: "{{ redteam_user }}"
+
+- name: Set the workspace base path
+  ansible.builtin.set_fact:
+    workspace_base: "{{ getent_passwd[redteam_user][4] }}/Workspace"
+
 - name: Ensure custom workspace architecture exists
   ansible.builtin.file:
-    path: "{{ item }}"
+    path: "{{ workspace_base }}/{{ item }}"
     state: directory
+    owner: "{{ redteam_user }}"
+    group: "{{ redteam_user }}"
     mode: '0755'
   loop:
-    - "/root/Workspace/Recon"
-    - "/root/Workspace/Exploits"
-    - "/root/Workspace/OSINT"
+    - Recon
+    - Exploits
+    - OSINT
 
 - name: Disable power management and screen blanking delays
   ansible.builtin.command:

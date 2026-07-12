@@ -36,7 +36,7 @@ redteam-playbook/
 
 ## Integrated Core Features
 
-*   **Workspace Standard:** Automatically enforces a standardized operation directories framework (`/root/Workspace/{Recon,Exploits,OSINT}`).
+*   **Workspace Standard:** Automatically enforces a standardized operation directories framework (`~/Workspace/{Recon,Exploits,OSINT}`) in the operator account's home — the user who invoked `sudo`, not `root` (override with `-e redteam_user=<name>`).
 *   **Environment Enhancements:** Disables screen blanking, power-saving lockouts, and sets up custom terminal dotfiles.
 *   **Automated Tool Provisioning:** Deploys a baseline red team toolkit (`ligolo-ng`, `amass`, `certipy`, `bloodyad`, `terminator`) using each platform's native mechanism — apt on Kali, `pipx` plus prebuilt release binaries on generic Debian/Ubuntu, and `pacman` on Arch — so non-Kali hosts get the tools without adding Kali repositories.
 *   **Platform Tuning:** Handles Debian-specific tasks like extracting `rockyou.txt` and updates `pacman` signature keys on Arch-based targets.
