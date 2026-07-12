@@ -1,35 +1,26 @@
 ---
-# Kali-native path: all tooling is available in the Kali apt repositories.
-- name: Update apt cache and upgrade the system
-  ansible.builtin.apt:
-    update_cache: true
-    upgrade: safe
+# Kali-native path.
+#
+# Resilience model: every tool is installed independently and non-fatally
+# (ignore_errors / rescue), so one failure never aborts the run. Anything that
+# fails is collected in `failed_tools` and written to a report at the end.
 
-- name: Extract Rockyou wordlist natively
-  ansible.builtin.command:
-    cmd: gunzip /usr/share/wordlists/rockyou.txt.gz
-    creates: /usr/share/wordlists/rockyou.txt
-  failed_when: false
+- name: Initialize failed-tools tracker
+  ansible.builtin.set_fact:
+    failed_tools: []
 
-- name: Install PimpMyKali essential core tooling
-  ansible.builtin.apt:
-    name:
+- name: Define Kali tool sets
+  ansible.builtin.set_fact:
+    kali_apt_packages:
+      # core AD / recon suite
       - bloodhound
       - bloodyad
       - amass
       - certipy-ad
       - terminator
       - ligolo-ng
-      - bloodhound-cli
-    state: present
-
-# Operator toolkit. Everything here is packaged in the Kali repos (verified via
-# apt-cache), so apt is preferred over git-cloning source. Two substitutions:
-#   webshells -> provides pentestmonkey php-reverse-shell.php (/usr/share/webshells)
-#   peass     -> Kali's package for PEASS-ng (linpeas/winpeas, /usr/share/peass)
-- name: Install operator toolkit available in Kali apt
-  ansible.builtin.apt:
-    name:
+      # operator toolkit (webshells -> pentestmonkey php-reverse-shell,
+      # peass -> PEASS-ng linpeas/winpeas)
       - wpscan
       - gobuster
       - powersploit
@@ -43,91 +34,175 @@
       - sqlmap
       - webshells
       - peass
-    state: present
+      # editors / web proxies
+      - burpsuite
+      - caido
+      - neovim
+    kali_git_tools:
+      - { name: LinEnum, repo: rebootuser/LinEnum }
+      - { name: PrivescCheck, repo: itm4n/PrivescCheck }
+      - { name: SigmaPotato, repo: tylerdotrar/SigmaPotato }
+      - { name: GodPotato, repo: BeichenDream/GodPotato }
+    kali_url_binaries:
+      - name: kerbrute
+        url: https://github.com/ropnop/kerbrute/releases/download/v1.0.3/kerbrute_linux_amd64
+        dest: /usr/local/bin/kerbrute
 
-# Tools NOT packaged in Kali apt -> shallow-clone latest into the Exploits workspace.
+- name: Update apt cache and upgrade the system
+  ansible.builtin.apt:
+    update_cache: true
+    upgrade: safe
+  ignore_errors: true
+
+- name: Extract Rockyou wordlist natively
+  ansible.builtin.command:
+    cmd: gunzip /usr/share/wordlists/rockyou.txt.gz
+    creates: /usr/share/wordlists/rockyou.txt
+  failed_when: false
+
+# --- apt packages: one at a time so a single bad package doesn't block the rest ---
+- name: Install apt packages individually
+  ansible.builtin.apt:
+    name: "{{ item }}"
+    state: present
+  loop: "{{ kali_apt_packages }}"
+  register: apt_results
+  ignore_errors: true
+
+- name: Record failed apt packages
+  ansible.builtin.set_fact:
+    failed_tools: "{{ failed_tools + (apt_results.results | selectattr('failed', 'defined') | selectattr('failed') | map(attribute='item') | list) }}"
+
+# --- git tools not packaged in apt -> shallow-clone into the Exploits workspace ---
 - name: Clone privesc/exploitation tools not in apt
   ansible.builtin.git:
     repo: "https://github.com/{{ item.repo }}"
     dest: "/root/Workspace/Exploits/{{ item.name }}"
     depth: 1
     update: false
-  loop:
-    - { name: LinEnum, repo: rebootuser/LinEnum }
-    - { name: PrivescCheck, repo: itm4n/PrivescCheck }
-    - { name: SigmaPotato, repo: tylerdotrar/SigmaPotato }
-    - { name: GodPotato, repo: BeichenDream/GodPotato }
+  loop: "{{ kali_git_tools }}"
   loop_control:
     label: "{{ item.name }}"
+  register: git_results
+  ignore_errors: true
 
-- name: Install kerbrute release binary (not in apt)
+- name: Record failed git tools
+  ansible.builtin.set_fact:
+    failed_tools: "{{ failed_tools + (git_results.results | selectattr('failed', 'defined') | selectattr('failed') | map(attribute='item.name') | list) }}"
+
+# --- standalone release binaries ---
+- name: Install standalone release binaries (not in apt)
   ansible.builtin.get_url:
-    url: https://github.com/ropnop/kerbrute/releases/download/v1.0.3/kerbrute_linux_amd64
-    dest: /usr/local/bin/kerbrute
+    url: "{{ item.url }}"
+    dest: "{{ item.dest }}"
     mode: '0755'
+  loop: "{{ kali_url_binaries }}"
+  loop_control:
+    label: "{{ item.name }}"
+  register: url_results
+  ignore_errors: true
 
-# --- Editors / web proxies available in Kali apt ---
-- name: Install editor and web-proxy tooling (Kali apt)
-  ansible.builtin.apt:
-    name:
-      - burpsuite
-      - caido
-      - neovim
-    state: present
+- name: Record failed release binaries
+  ansible.builtin.set_fact:
+    failed_tools: "{{ failed_tools + (url_results.results | selectattr('failed', 'defined') | selectattr('failed') | map(attribute='item.name') | list) }}"
 
+# --- vim -> neovim ---
 - name: Make 'vim' launch neovim (update-alternatives)
-  community.general.alternatives:
-    name: vim
-    link: /usr/bin/vim
-    path: /usr/bin/nvim
-    priority: 110
+  block:
+    - name: Point the vim alternative at neovim
+      community.general.alternatives:
+        name: vim
+        link: /usr/bin/vim
+        path: /usr/bin/nvim
+        priority: 110
+  rescue:
+    - name: Record vim->neovim alternative failure
+      ansible.builtin.set_fact:
+        failed_tools: "{{ failed_tools + ['vim->neovim alternative'] }}"
 
 # --- VS Code (real Microsoft build; served from Microsoft's apt repo, not Kali's) ---
-- name: Ensure apt keyrings directory exists
-  ansible.builtin.file:
-    path: /etc/apt/keyrings
-    state: directory
-    mode: '0755'
+- name: Install Visual Studio Code from the Microsoft apt repo
+  block:
+    - name: Ensure apt keyrings directory exists
+      ansible.builtin.file:
+        path: /etc/apt/keyrings
+        state: directory
+        mode: '0755'
 
-- name: Add Microsoft VS Code signing key
-  ansible.builtin.get_url:
-    url: https://packages.microsoft.com/keys/microsoft.asc
-    dest: /etc/apt/keyrings/microsoft.asc
-    mode: '0644'
+    - name: Add Microsoft VS Code signing key
+      ansible.builtin.get_url:
+        url: https://packages.microsoft.com/keys/microsoft.asc
+        dest: /etc/apt/keyrings/microsoft.asc
+        mode: '0644'
 
-- name: Add Microsoft VS Code apt repository
-  ansible.builtin.deb822_repository:
-    name: vscode
-    types: deb
-    uris: https://packages.microsoft.com/repos/code
-    suites: stable
-    components: main
-    architectures: amd64
-    signed_by: /etc/apt/keyrings/microsoft.asc
-    state: present
+    - name: Add Microsoft VS Code apt repository
+      ansible.builtin.deb822_repository:
+        name: vscode
+        types: deb
+        uris: https://packages.microsoft.com/repos/code
+        suites: stable
+        components: main
+        architectures: amd64
+        signed_by: /etc/apt/keyrings/microsoft.asc
+        state: present
 
-- name: Install Visual Studio Code
-  ansible.builtin.apt:
-    name: code
-    state: present
-    update_cache: true
+    - name: Install Visual Studio Code
+      ansible.builtin.apt:
+        name: code
+        state: present
+        update_cache: true
+  rescue:
+    - name: Record VS Code failure
+      ansible.builtin.set_fact:
+        failed_tools: "{{ failed_tools + ['code (vscode)'] }}"
 
 # --- Postman (no apt package and no snap on Kali) ---
-- name: Download Postman tarball
-  ansible.builtin.get_url:
-    url: https://dl.pstmn.io/download/latest/linux_64
-    dest: /tmp/postman-linux-x64.tar.gz
+- name: Install Postman from tarball
+  block:
+    - name: Download Postman tarball
+      ansible.builtin.get_url:
+        url: https://dl.pstmn.io/download/latest/linux_64
+        dest: /tmp/postman-linux-x64.tar.gz
+        mode: '0644'
+
+    - name: Extract Postman into /opt
+      ansible.builtin.unarchive:
+        src: /tmp/postman-linux-x64.tar.gz
+        dest: /opt
+        remote_src: true
+        creates: /opt/Postman/Postman
+
+    - name: Symlink postman onto the global PATH
+      ansible.builtin.file:
+        src: /opt/Postman/Postman
+        dest: /usr/local/bin/postman
+        state: link
+  rescue:
+    - name: Record Postman failure
+      ansible.builtin.set_fact:
+        failed_tools: "{{ failed_tools + ['postman'] }}"
+
+# --- Failure report ---
+- name: Write failed-tools report
+  ansible.builtin.copy:
+    dest: /root/Workspace/failed_tools.txt
     mode: '0644'
+    content: |
+      Tools that failed to install (redteam_env, {{ ansible_distribution }} {{ ansible_distribution_release }}):
+      {% for t in failed_tools %}
+      - {{ t }}
+      {% endfor %}
+  when: failed_tools | length > 0
 
-- name: Extract Postman into /opt
-  ansible.builtin.unarchive:
-    src: /tmp/postman-linux-x64.tar.gz
-    dest: /opt
-    remote_src: true
-    creates: /opt/Postman/Postman
-
-- name: Symlink postman onto the global PATH
+- name: Remove stale failed-tools report when everything succeeded
   ansible.builtin.file:
-    src: /opt/Postman/Postman
-    dest: /usr/local/bin/postman
-    state: link
+    path: /root/Workspace/failed_tools.txt
+    state: absent
+  when: failed_tools | length == 0
+
+- name: Summarize install failures
+  ansible.builtin.debug:
+    msg: >-
+      {{ failed_tools | length }} tool(s) failed to install:
+      {{ failed_tools | join(', ') }}. See /root/Workspace/failed_tools.txt
+  when: failed_tools | length > 0
