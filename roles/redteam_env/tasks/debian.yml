@@ -32,8 +32,23 @@
     state: present
     update_cache: true
 
-# 2. Python tools via pipx (installed to /usr/local/bin via pipx_env).
-- name: Install Python-based tooling with pipx
+# 2. Launch the slow installs concurrently (async): pipx venvs build while the
+#    Go-tool tarballs download in parallel. unarchive is an action plugin (no
+#    async), so the fast local extraction runs afterwards.
+- name: Define release-binary downloads
+  ansible.builtin.set_fact:
+    release_downloads:
+      - name: ligolo-proxy
+        url: "https://github.com/nicocha30/ligolo-ng/releases/download/v{{ ligolo_version }}/ligolo-ng_proxy_{{ ligolo_version }}_linux_{{ go_arch }}.tar.gz"
+        dest: /tmp/ligolo-ng_proxy.tar.gz
+      - name: ligolo-agent
+        url: "https://github.com/nicocha30/ligolo-ng/releases/download/v{{ ligolo_version }}/ligolo-ng_agent_{{ ligolo_version }}_linux_{{ go_arch }}.tar.gz"
+        dest: /tmp/ligolo-ng_agent.tar.gz
+      - name: amass
+        url: "https://github.com/owasp-amass/amass/releases/download/v{{ amass_version }}/amass_Linux_{{ go_arch }}.zip"
+        dest: "/tmp/amass_{{ amass_version }}.zip"
+
+- name: Launch pipx installs in the background
   community.general.pipx:
     name: "{{ item }}"
     state: present
@@ -42,11 +57,48 @@
     - certipy-ad       # certipy
     - bloodyAD         # bloodyad
     - bloodhound-ce    # BloodHound CE python ingestor (collector)
+  async: 300
+  poll: 0
+  register: pipx_async
 
-# 3. Go tools via prebuilt release binaries -> /usr/local/bin.
-- name: Install ligolo-ng proxy and agent binaries
+- name: Launch release-binary downloads in the background
+  ansible.builtin.get_url:
+    url: "{{ item.url }}"
+    dest: "{{ item.dest }}"
+    mode: '0644'
+  loop: "{{ release_downloads }}"
+  loop_control:
+    label: "{{ item.name }}"
+  async: 300
+  poll: 0
+  register: dl_async
+
+- name: Wait for pipx installs to finish
+  ansible.builtin.async_status:
+    jid: "{{ item.ansible_job_id }}"
+  loop: "{{ pipx_async.results }}"
+  loop_control:
+    label: "{{ item.item }}"
+  register: pipx_wait
+  until: pipx_wait.finished
+  retries: 60
+  delay: 5
+
+- name: Wait for release-binary downloads to finish
+  ansible.builtin.async_status:
+    jid: "{{ item.ansible_job_id }}"
+  loop: "{{ dl_async.results }}"
+  loop_control:
+    label: "{{ item.item.name }}"
+  register: dl_wait
+  until: dl_wait.finished
+  retries: 60
+  delay: 5
+
+# 3. Fast local extraction of the downloaded Go tools.
+- name: Extract ligolo-ng proxy and agent binaries
   ansible.builtin.unarchive:
-    src: "https://github.com/nicocha30/ligolo-ng/releases/download/v{{ ligolo_version }}/ligolo-ng_{{ item }}_{{ ligolo_version }}_linux_{{ go_arch }}.tar.gz"
+    src: "/tmp/ligolo-ng_{{ item }}.tar.gz"
     dest: /usr/local/bin
     remote_src: true
     mode: '0755'
@@ -54,12 +106,6 @@
   loop:
     - proxy   # operator side
     - agent   # deploy to targets
-
-- name: Download amass release archive
-  ansible.builtin.get_url:
-    url: "https://github.com/owasp-amass/amass/releases/download/v{{ amass_version }}/amass_Linux_{{ go_arch }}.zip"
-    dest: "/tmp/amass_{{ amass_version }}.zip"
-    mode: '0644'
 
 - name: Extract amass into /opt
   ansible.builtin.unarchive:
