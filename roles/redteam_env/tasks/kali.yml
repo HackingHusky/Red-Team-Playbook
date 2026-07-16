@@ -65,15 +65,23 @@
     creates: /usr/share/wordlists/rockyou.txt
   failed_when: false
 
-# --- apt packages: one batched transaction (fast, single dpkg lock -- apt can't
-#     run in parallel). If the batch fails, fall back to per-item installs so one
-#     bad package doesn't block the rest, and record which ones failed. ---
+# --- apt packages: installed in small groups (chunks) so progress is visible as
+#     each group completes, while staying far faster than one-at-a-time. apt can't
+#     run in parallel (single dpkg lock). If a chunk fails, fall back to per-item
+#     installs so one bad package doesn't block the rest, and record which failed. ---
+- name: "Installing {{ kali_apt_packages | length }} apt packages in groups of 4"
+  ansible.builtin.debug:
+    msg: "Progress prints as each group completes; this may take several minutes."
+
 - name: Install apt packages
   block:
-    - name: Install apt packages (batched)
+    - name: Install apt packages (in groups)
       ansible.builtin.apt:
-        name: "{{ kali_apt_packages }}"
+        name: "{{ item }}"
         state: present
+      loop: "{{ kali_apt_packages | batch(4) | list }}"
+      loop_control:
+        label: "{{ item | join(', ') }}"
   rescue:
     - name: Install apt packages individually to isolate failures
       ansible.builtin.apt:
